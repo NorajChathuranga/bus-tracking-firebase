@@ -150,7 +150,7 @@ export default function PassengerPage() {
   const mapCenter = firstBus
     ? [firstBus.lat, firstBus.lng]
     : selectedRoute?.center ?? routes[0]?.center ?? defaultCenter;
-  const mapCenterObject = useMemo(() => buildLatLng(mapCenter), [mapCenter]);
+  const mapCenterObject = useMemo(() => buildLatLng(mapCenter), [mapCenter[0], mapCenter[1]]);
   const selectedTrip = tripOptions[selectedTripIndex] ?? null;
 
   async function handleTripPlan() {
@@ -210,8 +210,8 @@ export default function PassengerPage() {
             <h2>Live route map</h2>
           </div>
           <div className="status-row">
-            <span className="status-pill">{visibleBuses.length} active buses</span>
-            <span className="status-pill status-pill--subtle">Realtime Database stream</span>
+            <span className="status-pill status-pill--live">{visibleBuses.length} active</span>
+            <span className="status-pill status-pill--subtle">{routes.length} routes</span>
           </div>
         </div>
 
@@ -243,10 +243,7 @@ export default function PassengerPage() {
                 </select>
               </label>
 
-              <div className="status-row">
-                <span className="status-pill status-pill--subtle">{routes.length} routes loaded</span>
-                <span className="status-pill status-pill--subtle">Catalog: {routeSource}</span>
-              </div>
+              <span className="status-pill status-pill--subtle">Source: {routeSource}</span>
             </div>
 
             <div className="map-frame">
@@ -396,8 +393,9 @@ export default function PassengerPage() {
         <div className="panel__header">
           <div>
             <p className="eyebrow">Network status</p>
-            <h2>{selectedRoute ? `Route ${selectedRoute.id}` : 'Active fleet'}</h2>
+            <h2>{selectedRoute ? `Route ${selectedRoute.id}` : 'Fleet overview'}</h2>
           </div>
+          <span className="status-pill status-pill--live">{visibleBuses.length} live</span>
         </div>
 
         {selectedRoute ? (
@@ -415,14 +413,9 @@ export default function PassengerPage() {
           </section>
         ) : null}
 
-        <section className="info-card route-summary-card">
-          <div className="panel__header">
-            <div>
-              <p className="eyebrow">Google transit</p>
-              <h3>Trip planner</h3>
-            </div>
-          </div>
+        <p className="section-label">Trip planner</p>
 
+        <section className="info-card route-summary-card">
           <div className="planner-grid">
             <label className="field field--full">
               <span>Origin</span>
@@ -446,13 +439,13 @@ export default function PassengerPage() {
           </div>
 
           <div className="button-row">
-            <button disabled={!isLoaded || isPlanningTrip} onClick={handleTripPlan} type="button">
-              {isPlanningTrip ? 'Planning...' : 'Find bus directions'}
+            <button className="button--primary" disabled={!isLoaded || isPlanningTrip} onClick={handleTripPlan} type="button">
+              {isPlanningTrip ? 'Searching...' : 'Find bus routes'}
             </button>
           </div>
 
           <p className="inline-note inline-note--compact">
-            This uses Google transit directions, so results depend on Google transit coverage for the selected area.
+            Results depend on Google transit coverage for the selected area.
           </p>
           {tripPlannerError ? <p className="inline-note inline-note--error">{tripPlannerError}</p> : null}
         </section>
@@ -535,6 +528,8 @@ export default function PassengerPage() {
           </section>
         ) : null}
 
+        <p className="section-label">Routes</p>
+
         <section className="route-list">
           {routes.map((route) => (
             <button
@@ -549,6 +544,8 @@ export default function PassengerPage() {
             </button>
           ))}
         </section>
+
+        <p className="section-label">Active buses</p>
 
         <div className="bus-list">
           {visibleBuses.map((bus) => {

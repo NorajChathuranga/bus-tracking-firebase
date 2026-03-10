@@ -55,6 +55,7 @@ export default function AdminPage() {
   const [routeDraft, setRouteDraft] = useState(createRouteDraft());
   const [busDraft, setBusDraft] = useState({ busId: 'bus_138_03', routeId: '138', driverId: 'unassigned', status: 'active' });
   const [feedback, setFeedback] = useState('');
+  const [feedbackType, setFeedbackType] = useState('');
   const [isSavingRoute, setIsSavingRoute] = useState(false);
   const [isSavingBus, setIsSavingBus] = useState(false);
 
@@ -91,33 +92,40 @@ export default function AdminPage() {
 
   async function handleAuth(mode) {
     setFeedback('');
+    setFeedbackType('');
 
     try {
       if (mode === 'register') {
         await createUserWithEmailAndPassword(auth, authForm.email, authForm.password);
         setFeedback('Admin account created.');
+        setFeedbackType('success');
       } else {
         await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
         setFeedback('Admin signed in.');
+        setFeedbackType('success');
       }
     } catch (error) {
       setFeedback(error.message);
+      setFeedbackType('error');
     }
   }
 
   async function handleRouteSave() {
     if (!firestore) {
       setFeedback('Firestore is not configured.');
+      setFeedbackType('error');
       return;
     }
 
     if (!routeDraft.routeId.trim() || !routeDraft.name.trim()) {
       setFeedback('Route ID and route name are required.');
+      setFeedbackType('error');
       return;
     }
 
     setIsSavingRoute(true);
     setFeedback('');
+    setFeedbackType('');
 
     try {
       const path = parseJsonField('Path JSON', routeDraft.pathJson);
@@ -137,8 +145,10 @@ export default function AdminPage() {
 
       setRouteEditorId(routeDraft.routeId.trim());
       setFeedback(`Saved route ${routeDraft.routeId.trim()}.`);
+      setFeedbackType('success');
     } catch (error) {
       setFeedback(error.message);
+      setFeedbackType('error');
     } finally {
       setIsSavingRoute(false);
     }
@@ -147,16 +157,19 @@ export default function AdminPage() {
   async function handleBusSave() {
     if (!database) {
       setFeedback('Realtime Database is not configured.');
+      setFeedbackType('error');
       return;
     }
 
     if (!busDraft.busId.trim() || !busDraft.routeId.trim()) {
       setFeedback('Bus ID and route ID are required.');
+      setFeedbackType('error');
       return;
     }
 
     setIsSavingBus(true);
     setFeedback('');
+    setFeedbackType('');
 
     try {
       await update(ref(database, `buses/${busDraft.busId.trim()}`), {
@@ -167,8 +180,10 @@ export default function AdminPage() {
       });
 
       setFeedback(`Saved bus ${busDraft.busId.trim()}.`);
+      setFeedbackType('success');
     } catch (error) {
       setFeedback(error.message);
+      setFeedbackType('error');
     } finally {
       setIsSavingBus(false);
     }
@@ -177,6 +192,7 @@ export default function AdminPage() {
   async function handleLogout() {
     await signOut(auth);
     setFeedback('Signed out.');
+    setFeedbackType('success');
   }
 
   return (
@@ -185,9 +201,12 @@ export default function AdminPage() {
         <div className="panel__header">
           <div>
             <p className="eyebrow">Admin dashboard</p>
-            <h2>Manage routes, buses, and live operations</h2>
+            <h2>Operations center</h2>
           </div>
-          <span className="status-pill status-pill--subtle">Catalog source: {routeSource}</span>
+          <div className="status-row">
+            <span className="status-pill status-pill--live">{buses.length} live</span>
+            <span className="status-pill status-pill--subtle">Source: {routeSource}</span>
+          </div>
         </div>
 
         {!isFirebaseConfigured ? (
@@ -197,7 +216,9 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        {isFirebaseConfigured && isAuthLoading ? <p className="inline-note">Checking admin session...</p> : null}
+        {isFirebaseConfigured && isAuthLoading ? (
+          <div className="loading-fallback"><div className="spinner" />Checking admin session...</div>
+        ) : null}
 
         {isFirebaseConfigured && !isAuthLoading && !user ? (
           <div className="driver-grid">
@@ -221,22 +242,22 @@ export default function AdminPage() {
               </label>
 
               <div className="button-row">
-                <button onClick={() => handleAuth('signin')} type="button">
+                <button className="button--primary" onClick={() => handleAuth('signin')} type="button">
                   Sign in
                 </button>
                 <button className="button button--secondary" onClick={() => handleAuth('register')} type="button">
-                  Create admin account
+                  Create account
                 </button>
               </div>
 
-              {feedback ? <p className="inline-note">{feedback}</p> : null}
+              {feedback ? <p className={feedbackType === 'success' ? 'inline-note inline-note--success' : 'inline-note inline-note--error'}>{feedback}</p> : null}
             </section>
 
             <aside className="info-card">
-              <h3>Current scope</h3>
+              <p className="eyebrow">Important</p>
+              <h3>Access control</h3>
               <p>
-                Phase 3 currently adds management screens. Role-based authorization rules should be added in
-                Firebase before production use.
+                Add role-based authorization rules in Firebase Security Rules before deploying to production.
               </p>
             </aside>
           </div>
@@ -256,19 +277,21 @@ export default function AdminPage() {
               </div>
 
               <div className="stat-grid">
-                <article className="info-card">
+                <article className="stat-card">
                   <h3>{routes.length}</h3>
                   <p>Routes</p>
                 </article>
-                <article className="info-card">
+                <article className="stat-card">
                   <h3>{totalStops}</h3>
-                  <p>Stops</p>
+                  <p>Total stops</p>
                 </article>
-                <article className="info-card">
+                <article className="stat-card">
                   <h3>{buses.length}</h3>
                   <p>Live buses</p>
                 </article>
               </div>
+
+              <hr className="divider" />
 
               <section className="info-card">
                 <div className="panel__header">
@@ -375,11 +398,13 @@ export default function AdminPage() {
                 </div>
 
                 <div className="button-row">
-                  <button disabled={isSavingRoute} onClick={handleRouteSave} type="button">
-                    Save route
+                  <button className="button--primary" disabled={isSavingRoute} onClick={handleRouteSave} type="button">
+                    {isSavingRoute ? 'Saving...' : 'Save route'}
                   </button>
                 </div>
               </section>
+
+              <hr className="divider" />
 
               <section className="info-card">
                 <div className="panel__header">
@@ -436,13 +461,17 @@ export default function AdminPage() {
                 </div>
 
                 <div className="button-row">
-                  <button disabled={isSavingBus} onClick={handleBusSave} type="button">
-                    Save bus
+                  <button className="button--primary" disabled={isSavingBus} onClick={handleBusSave} type="button">
+                    {isSavingBus ? 'Saving...' : 'Save bus'}
                   </button>
                 </div>
               </section>
 
-              {feedback ? <p className="inline-note">{feedback}</p> : null}
+              {feedback ? (
+                <p className={feedbackType === 'success' ? 'inline-note inline-note--success' : 'inline-note inline-note--error'}>
+                  {feedback}
+                </p>
+              ) : null}
             </section>
 
             <aside className="card-stack">

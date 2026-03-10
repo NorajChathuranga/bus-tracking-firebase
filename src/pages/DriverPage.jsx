@@ -42,10 +42,12 @@ export default function DriverPage() {
   const [isTracking, setIsTracking] = useState(false);
   const [mode, setMode] = useState('demo');
   const [feedback, setFeedback] = useState('');
+  const [feedbackType, setFeedbackType] = useState('');
   const [lastPayload, setLastPayload] = useState(null);
 
   const intervalRef = useRef(null);
   const demoIndexRef = useRef(0);
+  const stopTrackingRef = useRef(null);
 
   const selectedRoute = useMemo(
     () => routes.find((route) => route.id === formState.routeId) ?? routes[0] ?? null,
@@ -69,7 +71,9 @@ export default function DriverPage() {
 
   useEffect(() => {
     return () => {
-      stopTracking().catch(() => {});
+      if (stopTrackingRef.current) {
+        stopTrackingRef.current().catch(() => {});
+      }
     };
   }, []);
 
@@ -118,6 +122,7 @@ export default function DriverPage() {
 
     setLastPayload(payload);
     setFeedback(`Published ${payload.busId} at ${new Date(payload.timestamp).toLocaleTimeString()}.`);
+    setFeedbackType('success');
   }
 
   async function publishDeviceLocation() {
@@ -171,6 +176,7 @@ export default function DriverPage() {
   async function startTracking() {
     if (!formState.busId.trim() || !formState.routeId.trim()) {
       setFeedback('Bus ID and route ID are required before tracking starts.');
+      setFeedbackType('error');
       return;
     }
 
@@ -180,6 +186,7 @@ export default function DriverPage() {
         intervalRef.current = window.setInterval(() => {
           publishDeviceLocation().catch((error) => {
             setFeedback(error.message);
+            setFeedbackType('error');
             stopTracking().catch(() => {});
           });
         }, 5000);
@@ -188,6 +195,7 @@ export default function DriverPage() {
         intervalRef.current = window.setInterval(() => {
           publishDemoLocation().catch((error) => {
             setFeedback(error.message);
+            setFeedbackType('error');
             stopTracking().catch(() => {});
           });
         }, 5000);
@@ -195,8 +203,10 @@ export default function DriverPage() {
 
       setIsTracking(true);
       setFeedback('Tracking is live. Passenger clients will receive updates immediately.');
+      setFeedbackType('success');
     } catch (error) {
       setFeedback(error.message);
+      setFeedbackType('error');
       await stopTracking().catch(() => {});
     }
   }
@@ -219,20 +229,26 @@ export default function DriverPage() {
     demoIndexRef.current = 0;
   }
 
+  stopTrackingRef.current = stopTracking;
+
   async function handleLogin(modeName) {
     setIsSubmitting(true);
     setFeedback('');
+    setFeedbackType('');
 
     try {
       if (modeName === 'register') {
         await createUserWithEmailAndPassword(auth, formState.email, formState.password);
         setFeedback('Driver account created. You can start tracking now.');
+        setFeedbackType('success');
       } else {
         await signInWithEmailAndPassword(auth, formState.email, formState.password);
         setFeedback('Driver signed in.');
+        setFeedbackType('success');
       }
     } catch (error) {
       setFeedback(error.message);
+      setFeedbackType('error');
     } finally {
       setIsSubmitting(false);
     }
@@ -242,6 +258,7 @@ export default function DriverPage() {
     await stopTracking().catch(() => {});
     await signOut(auth);
     setFeedback('Signed out.');
+    setFeedbackType('success');
   }
 
   return (
@@ -249,10 +266,16 @@ export default function DriverPage() {
       <article className="panel panel--driver">
         <div className="panel__header">
           <div>
-            <p className="eyebrow">Driver view</p>
-            <h2>Publish bus GPS updates</h2>
+            <p className="eyebrow">Driver console</p>
+            <h2>GPS tracking</h2>
           </div>
-          <span className="status-pill">5 second update interval</span>
+          <div className="status-row">
+            {isTracking
+              ? <span className="tracking-badge tracking-badge--active">Broadcasting</span>
+              : <span className="tracking-badge tracking-badge--idle">Idle</span>
+            }
+            <span className="status-pill status-pill--subtle">5s interval</span>
+          </div>
         </div>
 
         {!isFirebaseConfigured ? (
@@ -265,7 +288,9 @@ export default function DriverPage() {
           </div>
         ) : null}
 
-        {isFirebaseConfigured && isAuthLoading ? <p className="inline-note">Checking driver session...</p> : null}
+        {isFirebaseConfigured && isAuthLoading ? (
+          <div className="loading-fallback"><div className="spinner" />Checking driver session...</div>
+        ) : null}
 
         {isFirebaseConfigured && !isAuthLoading && !user ? (
           <div className="driver-grid">
@@ -289,7 +314,7 @@ export default function DriverPage() {
               </label>
 
               <div className="button-row">
-                <button disabled={isSubmitting} onClick={() => handleLogin('signin')} type="button">
+                <button className="button--primary" disabled={isSubmitting} onClick={() => handleLogin('signin')} type="button">
                   Sign in
                 </button>
                 <button
@@ -304,10 +329,11 @@ export default function DriverPage() {
             </section>
 
             <aside className="info-card">
-              <h3>Phase 1 shortcut</h3>
+              <p className="eyebrow">Quick start</p>
+              <h3>Browser-based console</h3>
               <p>
-                This first version uses a browser-based driver console so you can validate the Firebase
-                pipeline before building a React Native driver app.
+                Use this console to simulate or broadcast live GPS. Validate the Firebase
+                pipeline before building a native driver app.
               </p>
             </aside>
           </div>
@@ -386,7 +412,7 @@ export default function DriverPage() {
               </div>
 
               <div className="button-row">
-                <button disabled={isTracking} onClick={startTracking} type="button">
+                <button className="button--primary" disabled={isTracking} onClick={startTracking} type="button">
                   Start tracking
                 </button>
                 <button
@@ -395,14 +421,15 @@ export default function DriverPage() {
                   onClick={() => stopTracking().catch(() => {})}
                   type="button"
                 >
-                  Stop tracking
+                  Stop
                 </button>
               </div>
 
-              <p className="inline-note inline-note--compact">
-                Catalog source: {routeSource}. Demo mode follows the selected route path and publishes the selected bus.
-              </p>
-              {feedback ? <p className="inline-note">{feedback}</p> : null}
+              {feedback ? (
+                <p className={feedbackType === 'error' ? 'inline-note inline-note--error' : 'inline-note inline-note--success'}>
+                  {feedback}
+                </p>
+              ) : null}
             </section>
 
             <aside className="info-card info-card--highlight">
