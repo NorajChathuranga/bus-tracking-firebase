@@ -9,7 +9,7 @@ export default defineConfig({
         manualChunks: {
           react: ['react', 'react-dom', 'react-router-dom'],
           firebase: ['firebase/app', 'firebase/auth', 'firebase/database'],
-          maps: ['leaflet', 'react-leaflet'],
+          maps: ['@react-google-maps/api'],
         },
       },
     },

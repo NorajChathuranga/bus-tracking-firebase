@@ -21,6 +21,7 @@ The current build covers the realtime pipeline plus the first transport network 
 - Admin dashboard for route editing, bus registration, and live monitoring
 - Stop ETA estimation for the selected route
 - Driver-reported crowd level visible to passengers
+- Google transit trip planner with bus direction options between two places
 
 ## Tech stack
 
@@ -28,9 +29,10 @@ The current build covers the realtime pipeline plus the first transport network 
 - Firebase Authentication
 - Firebase Realtime Database
 - Firestore route catalog with seeded fallback data
-- React Leaflet + OpenStreetMap tiles
+- Google Maps JavaScript API
 
-Google Maps can be introduced later, but Leaflet keeps Phase 1 simpler because it avoids a separate maps API key while the Firebase pipeline is being validated.
+The passenger map now uses Google Maps.
+The trip planner also uses Google transit directions, so route suggestions depend on Google transit coverage for your area.
 
 ## Local setup
 
@@ -38,8 +40,9 @@ Google Maps can be introduced later, but Leaflet keeps Phase 1 simpler because i
 2. Create a Firebase project.
 3. Enable Email/Password authentication.
 4. Create a Realtime Database in test mode for development.
-5. Copy `.env.example` to `.env` and fill in the Firebase web app credentials.
-6. Start the app.
+5. Enable the Google Maps JavaScript API and Directions API in Google Cloud, then create a browser API key.
+6. Copy `.env.example` to `.env` and fill in the Firebase web app credentials plus the Google Maps key.
+7. Start the app.
 
 ```bash
 npm install
@@ -56,6 +59,7 @@ VITE_FIREBASE_PROJECT_ID=
 VITE_FIREBASE_STORAGE_BUCKET=
 VITE_FIREBASE_MESSAGING_SENDER_ID=
 VITE_FIREBASE_APP_ID=
+VITE_GOOGLE_MAPS_API_KEY=
 ```
 
 ## Suggested Realtime Database structure

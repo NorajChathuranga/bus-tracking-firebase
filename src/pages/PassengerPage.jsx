@@ -1,32 +1,33 @@
-import { divIcon } from 'leaflet';
-import { useEffect, useMemo, useState } from 'react';
-import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
+import { useMemo, useState } from 'react';
+import { CircleF, GoogleMap, InfoWindowF, MarkerF, PolylineF, useJsApiLoader } from '@react-google-maps/api';
 import useLiveBuses from '../hooks/useLiveBuses';
 import useTransitNetwork from '../hooks/useTransitNetwork';
 import { estimateRouteStopEtas } from '../lib/eta';
 import { isFirebaseConfigured } from '../lib/firebase';
 
 const defaultCenter = [6.9271, 79.8612];
+const mapContainerStyle = {
+  width: '100%',
+  height: '100%',
+};
 
-function createBusIcon(busId) {
-  return divIcon({
-    className: 'bus-marker-icon',
-    html: `<span>${busId}</span>`,
-    iconSize: [74, 32],
-    iconAnchor: [37, 16],
-  });
+function buildLatLng(point) {
+  return { lat: point[0], lng: point[1] };
 }
 
-function RecenterMap({ center }) {
-  const map = useMap();
+function createBusMarkerIcon() {
+  if (!window.google?.maps) {
+    return undefined;
+  }
 
-  useEffect(() => {
-    map.setView(center, map.getZoom(), {
-      animate: true,
-    });
-  }, [center, map]);
-
-  return null;
+  return {
+    path: window.google.maps.SymbolPath.CIRCLE,
+    fillColor: '#ff5c39',
+    fillOpacity: 1,
+    strokeColor: '#ffffff',
+    strokeWeight: 2,
+    scale: 12,
+  };
 }
 
 function formatUpdatedTime(timestamp) {
@@ -57,7 +58,47 @@ function formatCrowdLevel(crowdLevel) {
   return crowdLevel.charAt(0).toUpperCase() + crowdLevel.slice(1);
 }
 
+function stripHtml(htmlText) {
+  return htmlText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function parseTransitRoute(route, routeIndex) {
+  const firstLeg = route.legs?.[0];
+  const steps = (firstLeg?.steps ?? []).map((step, stepIndex) => ({
+    id: `${routeIndex}-${stepIndex}`,
+    travelMode: step.travel_mode,
+    instructions: stripHtml(step.instructions ?? ''),
+    distanceText: step.distance?.text ?? '',
+    durationText: step.duration?.text ?? '',
+    lineName: step.transit?.line?.short_name ?? step.transit?.line?.name ?? '',
+    vehicleType: step.transit?.line?.vehicle?.type ?? '',
+    headsign: step.transit?.headsign ?? '',
+    departureStop: step.transit?.departure_stop?.name ?? '',
+    arrivalStop: step.transit?.arrival_stop?.name ?? '',
+    departureTime: step.transit?.departure_time?.text ?? '',
+    arrivalTime: step.transit?.arrival_time?.text ?? '',
+    stopCount: step.transit?.num_stops ?? 0,
+  }));
+
+  const busLines = [...new Set(steps.filter((step) => step.lineName).map((step) => step.lineName))];
+
+  return {
+    id: `option-${routeIndex}`,
+    durationText: firstLeg?.duration?.text ?? '',
+    distanceText: firstLeg?.distance?.text ?? '',
+    departureTime: firstLeg?.departure_time?.text ?? '',
+    arrivalTime: firstLeg?.arrival_time?.text ?? '',
+    busLines,
+    overviewPath: (route.overview_path ?? []).map((point) => ({
+      lat: point.lat(),
+      lng: point.lng(),
+    })),
+    steps,
+  };
+}
+
 export default function PassengerPage() {
+  const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   const { buses, isLoading, error } = useLiveBuses();
   const {
     routes,
@@ -66,6 +107,20 @@ export default function PassengerPage() {
     error: networkError,
   } = useTransitNetwork();
   const [selectedRouteId, setSelectedRouteId] = useState('all');
+  const [activeOverlay, setActiveOverlay] = useState(null);
+  const [tripForm, setTripForm] = useState({
+    origin: 'Pettah, Colombo',
+    destination: 'Maharagama, Colombo',
+  });
+  const [tripOptions, setTripOptions] = useState([]);
+  const [selectedTripIndex, setSelectedTripIndex] = useState(0);
+  const [tripPlannerError, setTripPlannerError] = useState('');
+  const [isPlanningTrip, setIsPlanningTrip] = useState(false);
+  const isGoogleMapsConfigured = Boolean(googleMapsApiKey);
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: 'bus-tracking-google-map',
+    googleMapsApiKey: googleMapsApiKey ?? '',
+  });
 
   const selectedRoute = useMemo(
     () => routes.find((route) => route.id === selectedRouteId) ?? null,
@@ -95,6 +150,56 @@ export default function PassengerPage() {
   const mapCenter = firstBus
     ? [firstBus.lat, firstBus.lng]
     : selectedRoute?.center ?? routes[0]?.center ?? defaultCenter;
+  const mapCenterObject = useMemo(() => buildLatLng(mapCenter), [mapCenter]);
+  const selectedTrip = tripOptions[selectedTripIndex] ?? null;
+
+  async function handleTripPlan() {
+    if (!window.google?.maps) {
+      setTripPlannerError('Google Maps is not loaded yet.');
+      return;
+    }
+
+    if (!tripForm.origin.trim() || !tripForm.destination.trim()) {
+      setTripPlannerError('Origin and destination are required.');
+      return;
+    }
+
+    setIsPlanningTrip(true);
+    setTripPlannerError('');
+
+    try {
+      const directionsService = new window.google.maps.DirectionsService();
+      const response = await directionsService.route({
+        origin: tripForm.origin.trim(),
+        destination: tripForm.destination.trim(),
+        provideRouteAlternatives: true,
+        travelMode: window.google.maps.TravelMode.TRANSIT,
+        transitOptions: {
+          modes: [window.google.maps.TransitMode.BUS],
+        },
+      });
+
+      const nextOptions = (response.routes ?? []).map((route, routeIndex) => parseTransitRoute(route, routeIndex));
+
+      if (!nextOptions.length) {
+        setTripOptions([]);
+        setTripPlannerError('No bus transit directions were returned for this trip.');
+        return;
+      }
+
+      setTripOptions(nextOptions);
+      setSelectedTripIndex(0);
+    } catch (nextError) {
+      setTripOptions([]);
+      setTripPlannerError(nextError.message ?? 'Transit directions request failed.');
+    } finally {
+      setIsPlanningTrip(false);
+    }
+  }
+
+  function selectTripOption(tripIndex) {
+    setSelectedTripIndex(tripIndex);
+  }
 
   return (
     <section className="panel-layout">
@@ -118,6 +223,11 @@ export default function PassengerPage() {
               map.
             </p>
           </div>
+        ) : !isGoogleMapsConfigured ? (
+          <div className="empty-state">
+            <h3>Google Maps API key required</h3>
+            <p>Add `VITE_GOOGLE_MAPS_API_KEY` to `.env` so the passenger map can load Google Maps.</p>
+          </div>
         ) : (
           <>
             <div className="route-toolbar">
@@ -140,54 +250,135 @@ export default function PassengerPage() {
             </div>
 
             <div className="map-frame">
-              <MapContainer center={mapCenter} zoom={13} scrollWheelZoom className="map-canvas">
-                <RecenterMap center={mapCenter} />
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
+              <div className="map-canvas">
+                {loadError ? (
+                  <div className="empty-state empty-state--compact">
+                    <h3>Google Maps failed to load</h3>
+                    <p>{loadError.message}</p>
+                  </div>
+                ) : null}
 
-                {visibleRoutes.map((route) => (
-                  <Polyline key={route.id} color={route.color} pathOptions={{ weight: 5, opacity: 0.75 }} positions={route.path}>
-                    <Popup>
-                      <strong>Route {route.id}</strong>
-                      <br />
-                      {route.name}
-                    </Popup>
-                  </Polyline>
-                ))}
+                {!loadError && !isLoaded ? <p className="inline-note">Loading Google Maps...</p> : null}
 
-                {visibleStops.map((stop) => (
-                  <CircleMarker
-                    key={stop.id}
-                    center={[stop.lat, stop.lng]}
-                    pathOptions={{ color: stop.color, fillColor: '#ffffff', fillOpacity: 1 }}
-                    radius={7}
+                {!loadError && isLoaded ? (
+                  <GoogleMap
+                    center={mapCenterObject}
+                    mapContainerStyle={mapContainerStyle}
+                    options={{
+                      fullscreenControl: true,
+                      mapTypeControl: false,
+                      streetViewControl: false,
+                      zoomControl: true,
+                      gestureHandling: 'greedy',
+                    }}
+                    zoom={13}
                   >
-                    <Popup>
-                      <strong>{stop.name}</strong>
-                      <br />
-                      Route: {stop.routeId}
-                    </Popup>
-                  </CircleMarker>
-                ))}
+                    {visibleRoutes.map((route) => (
+                      <PolylineF
+                        key={route.id}
+                        onClick={() => setActiveOverlay({ type: 'route', route })}
+                        options={{
+                          clickable: true,
+                          geodesic: false,
+                          path: route.path.map((point) => buildLatLng(point)),
+                          strokeColor: route.color,
+                          strokeOpacity: 0.85,
+                          strokeWeight: 5,
+                        }}
+                      />
+                    ))}
 
-                {visibleBuses.map((bus) => (
-                  <Marker key={bus.busId} icon={createBusIcon(bus.busId)} position={[bus.lat, bus.lng]}>
-                    <Popup>
-                      <strong>{bus.busId}</strong>
-                      <br />
-                      Route: {bus.routeId}
-                      <br />
-                      Speed: {Math.round(bus.speed)} km/h
-                      <br />
-                      Crowd: {formatCrowdLevel(bus.crowdLevel)}
-                      <br />
-                      Updated: {formatUpdatedTime(bus.timestamp)}
-                    </Popup>
-                  </Marker>
-                ))}
-              </MapContainer>
+                    {selectedTrip?.overviewPath?.length ? (
+                      <PolylineF
+                        options={{
+                          path: selectedTrip.overviewPath,
+                          strokeColor: '#0d6efd',
+                          strokeOpacity: 0.8,
+                          strokeWeight: 6,
+                          zIndex: 20,
+                        }}
+                      />
+                    ) : null}
+
+                    {visibleStops.map((stop) => (
+                      <CircleF
+                        center={{ lat: stop.lat, lng: stop.lng }}
+                        key={stop.id}
+                        onClick={() => setActiveOverlay({ type: 'stop', stop })}
+                        options={{
+                          clickable: true,
+                          fillColor: '#ffffff',
+                          fillOpacity: 1,
+                          radius: 55,
+                          strokeColor: stop.color,
+                          strokeOpacity: 1,
+                          strokeWeight: 3,
+                        }}
+                      />
+                    ))}
+
+                    {visibleBuses.map((bus) => (
+                      <MarkerF
+                        icon={createBusMarkerIcon()}
+                        key={bus.busId}
+                        label={{
+                          color: '#ffffff',
+                          fontSize: '10px',
+                          fontWeight: '700',
+                          text: bus.busId.replace('bus_', '').replaceAll('_', '-'),
+                        }}
+                        onClick={() => setActiveOverlay({ type: 'bus', bus })}
+                        position={{ lat: bus.lat, lng: bus.lng }}
+                      />
+                    ))}
+
+                    {activeOverlay?.type === 'route' ? (
+                      <InfoWindowF
+                        onCloseClick={() => setActiveOverlay(null)}
+                        position={buildLatLng(activeOverlay.route.center ?? defaultCenter)}
+                      >
+                        <div className="map-info-window">
+                          <strong>Route {activeOverlay.route.id}</strong>
+                          <br />
+                          {activeOverlay.route.name}
+                        </div>
+                      </InfoWindowF>
+                    ) : null}
+
+                    {activeOverlay?.type === 'stop' ? (
+                      <InfoWindowF
+                        onCloseClick={() => setActiveOverlay(null)}
+                        position={{ lat: activeOverlay.stop.lat, lng: activeOverlay.stop.lng }}
+                      >
+                        <div className="map-info-window">
+                          <strong>{activeOverlay.stop.name}</strong>
+                          <br />
+                          Route: {activeOverlay.stop.routeId}
+                        </div>
+                      </InfoWindowF>
+                    ) : null}
+
+                    {activeOverlay?.type === 'bus' ? (
+                      <InfoWindowF
+                        onCloseClick={() => setActiveOverlay(null)}
+                        position={{ lat: activeOverlay.bus.lat, lng: activeOverlay.bus.lng }}
+                      >
+                        <div className="map-info-window">
+                          <strong>{activeOverlay.bus.busId}</strong>
+                          <br />
+                          Route: {activeOverlay.bus.routeId}
+                          <br />
+                          Speed: {Math.round(activeOverlay.bus.speed)} km/h
+                          <br />
+                          Crowd: {formatCrowdLevel(activeOverlay.bus.crowdLevel)}
+                          <br />
+                          Updated: {formatUpdatedTime(activeOverlay.bus.timestamp)}
+                        </div>
+                      </InfoWindowF>
+                    ) : null}
+                  </GoogleMap>
+                ) : null}
+              </div>
             </div>
 
             {isLoading ? <p className="inline-note">Listening for live bus updates...</p> : null}
@@ -221,6 +412,95 @@ export default function PassengerPage() {
               <br />
               Next stop alerts: {selectedRouteEtas.filter((eta) => eta.isSoon).length}
             </p>
+          </section>
+        ) : null}
+
+        <section className="info-card route-summary-card">
+          <div className="panel__header">
+            <div>
+              <p className="eyebrow">Google transit</p>
+              <h3>Trip planner</h3>
+            </div>
+          </div>
+
+          <div className="planner-grid">
+            <label className="field field--full">
+              <span>Origin</span>
+              <input
+                type="text"
+                value={tripForm.origin}
+                onChange={(event) => setTripForm((current) => ({ ...current, origin: event.target.value }))}
+                placeholder="Pettah, Colombo"
+              />
+            </label>
+
+            <label className="field field--full">
+              <span>Destination</span>
+              <input
+                type="text"
+                value={tripForm.destination}
+                onChange={(event) => setTripForm((current) => ({ ...current, destination: event.target.value }))}
+                placeholder="Maharagama, Colombo"
+              />
+            </label>
+          </div>
+
+          <div className="button-row">
+            <button disabled={!isLoaded || isPlanningTrip} onClick={handleTripPlan} type="button">
+              {isPlanningTrip ? 'Planning...' : 'Find bus directions'}
+            </button>
+          </div>
+
+          <p className="inline-note inline-note--compact">
+            This uses Google transit directions, so results depend on Google transit coverage for the selected area.
+          </p>
+          {tripPlannerError ? <p className="inline-note inline-note--error">{tripPlannerError}</p> : null}
+        </section>
+
+        {tripOptions.length ? (
+          <section className="planner-routes">
+            {tripOptions.map((tripOption, tripIndex) => (
+              <button
+                key={tripOption.id}
+                className={tripIndex === selectedTripIndex ? 'planner-route-card planner-route-card--active' : 'planner-route-card'}
+                onClick={() => selectTripOption(tripIndex)}
+                type="button"
+              >
+                <strong>Option {tripIndex + 1}</strong>
+                <span>
+                  {tripOption.durationText || 'Duration unavailable'}
+                  {tripOption.departureTime ? ` | Depart ${tripOption.departureTime}` : ''}
+                </span>
+                <span>{tripOption.busLines.length ? `Buses: ${tripOption.busLines.join(', ')}` : 'No bus line metadata'}</span>
+              </button>
+            ))}
+          </section>
+        ) : null}
+
+        {selectedTrip ? (
+          <section className="planner-steps">
+            <div className="panel__header">
+              <div>
+                <p className="eyebrow">Transit details</p>
+                <h3>{selectedTrip.busLines.length ? selectedTrip.busLines.join(' -> ') : 'Trip steps'}</h3>
+              </div>
+            </div>
+
+            {selectedTrip.steps.map((step) => (
+              <article className={step.lineName ? 'planner-step planner-step--bus' : 'planner-step'} key={step.id}>
+                <div className="bus-card__head">
+                  <h3>{step.lineName || step.travelMode}</h3>
+                  <span>{step.durationText || step.distanceText}</span>
+                </div>
+                <p>
+                  {step.instructions || 'Route step'}
+                  {step.headsign ? <><br />Headsign: {step.headsign}</> : null}
+                  {step.departureStop ? <><br />From: {step.departureStop}</> : null}
+                  {step.arrivalStop ? <><br />To: {step.arrivalStop}</> : null}
+                  {step.stopCount ? <><br />Stops: {step.stopCount}</> : null}
+                </p>
+              </article>
+            ))}
           </section>
         ) : null}
 

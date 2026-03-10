@@ -200,6 +200,18 @@ pre {
   margin-top: 0;
 }
 
+.planner-grid,
+.planner-routes,
+.planner-steps {
+  display: grid;
+  gap: 12px;
+}
+
+.planner-routes,
+.planner-steps {
+  margin-bottom: 16px;
+}
+
 .eta-board {
   display: grid;
   gap: 12px;
@@ -224,6 +236,35 @@ pre {
 .eta-card--soon {
   background: linear-gradient(135deg, rgba(255, 230, 190, 0.9), rgba(255, 245, 226, 0.98));
   border-color: rgba(229, 87, 46, 0.34);
+}
+
+.planner-route-card,
+.planner-step {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  background: #f8fbfd;
+  color: #15202b;
+  border: 1px solid rgba(41, 81, 104, 0.12);
+}
+
+.planner-route-card span,
+.planner-step span {
+  color: #4b5c6b;
+}
+
+.planner-route-card--active {
+  border-color: rgba(13, 110, 253, 0.45);
+  background: linear-gradient(180deg, rgba(220, 234, 255, 0.8), rgba(248, 251, 253, 0.98));
+}
+
+.planner-step--bus {
+  border-color: rgba(229, 87, 46, 0.34);
+}
+
+.map-info-window {
+  max-width: 220px;
+  line-height: 1.45;
 }
 
 .bus-card--fresh {
