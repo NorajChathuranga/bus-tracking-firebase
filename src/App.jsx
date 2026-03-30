@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react';
-import { NavLink, Route, Routes } from 'react-router-dom';
+import { Navigate, NavLink, Route, Routes } from 'react-router-dom';
 
 const PassengerPage = lazy(() => import('./pages/PassengerPage'));
 const DriverPage = lazy(() => import('./pages/DriverPage'));
@@ -62,7 +62,7 @@ export default function App() {
         </div>
 
         <nav className="topbar__nav" aria-label="Primary navigation">
-          <NavLink className={navLinkClass} to="/">
+          <NavLink className={navLinkClass} end to="/">
             <IconMap />
             Passenger
           </NavLink>
@@ -83,6 +83,7 @@ export default function App() {
             <Route path="/" element={<PassengerPage />} />
             <Route path="/driver" element={<DriverPage />} />
             <Route path="/admin" element={<AdminPage />} />
+            <Route path="*" element={<Navigate replace to="/" />} />
           </Routes>
         </Suspense>
       </main>

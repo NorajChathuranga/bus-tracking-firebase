@@ -4,13 +4,52 @@ import { seedRoutes } from '../data/seedNetwork';
 import { firestore, isFirebaseConfigured } from '../lib/firebase';
 
 function normalizeRoute(route) {
+  function parseCoordinatePair(value, fallbackLat = 6.9271, fallbackLng = 79.8612) {
+    if (Array.isArray(value) && value.length >= 2) {
+      const lat = Number(value[0]);
+      const lng = Number(value[1]);
+
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return [lat, lng];
+      }
+    }
+
+    if (value && typeof value === 'object') {
+      const lat = Number(value.lat);
+      const lng = Number(value.lng);
+
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return [lat, lng];
+      }
+    }
+
+    return [fallbackLat, fallbackLng];
+  }
+
+  const normalizedStops = (route.stops ?? []).map((stop, stopIndex) => {
+    const lat = Number(stop?.lat);
+    const lng = Number(stop?.lng);
+    const fallbackCenter = parseCoordinatePair(route.center);
+
+    return {
+      ...stop,
+      id: stop?.id ?? `stop-${stopIndex + 1}`,
+      lat: Number.isFinite(lat) ? lat : fallbackCenter[0],
+      lng: Number.isFinite(lng) ? lng : fallbackCenter[1],
+    };
+  });
+
+  const normalizedCenter = parseCoordinatePair(route.center, normalizedStops[0]?.lat ?? 6.9271, normalizedStops[0]?.lng ?? 79.8612);
+
+  const normalizedPath = (route.path ?? []).map((point) => parseCoordinatePair(point, normalizedCenter[0], normalizedCenter[1]));
+
   return {
     id: route.id,
     name: route.name,
     color: route.color ?? '#e4572e',
-    center: route.center ?? [route.stops?.[0]?.lat ?? 6.9271, route.stops?.[0]?.lng ?? 79.8612],
-    path: route.path ?? [],
-    stops: route.stops ?? [],
+    center: normalizedCenter,
+    path: normalizedPath,
+    stops: normalizedStops,
     buses: route.buses ?? [],
   };
 }
