@@ -12,7 +12,15 @@ const mapContainerStyle = {
 };
 
 function buildLatLng(point) {
-  return { lat: point[0], lng: point[1] };
+  if (Array.isArray(point)) {
+    return { lat: Number(point[0]), lng: Number(point[1]) };
+  }
+
+  if (point && typeof point === 'object') {
+    return { lat: Number(point.lat), lng: Number(point.lng) };
+  }
+
+  return { lat: defaultCenter[0], lng: defaultCenter[1] };
 }
 
 function createBusMarkerIcon() {
@@ -150,7 +158,7 @@ export default function PassengerPage() {
   const mapCenter = firstBus
     ? [firstBus.lat, firstBus.lng]
     : selectedRoute?.center ?? routes[0]?.center ?? defaultCenter;
-  const mapCenterObject = useMemo(() => buildLatLng(mapCenter), [mapCenter[0], mapCenter[1]]);
+  const mapCenterObject = useMemo(() => buildLatLng(mapCenter), [mapCenter]);
   const selectedTrip = tripOptions[selectedTripIndex] ?? null;
 
   async function handleTripPlan() {
